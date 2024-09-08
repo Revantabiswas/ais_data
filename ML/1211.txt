@@ -1,0 +1,424 @@
+give me code to use this code to feature engineer on multiple ships provided from live ais data from this code "import pandas as pd
+
+
+ais_data = pd.read_csv('data\AIS_172525687489566583_539-1725256877685.csv')
+print(ais_data.head())  # Display first few rows ais_data = ais_data.dropna(subset=['LAT', 'LON', 'BaseDateTime', 'SOG', 'COG', 'Heading']) ais_data['BaseDateTime'] = pd.to_datetime(ais_data['BaseDateTime']) ais_data = ais_data.sort_values(by='BaseDateTime') ais_data.loc[255] # Filter data for a specific vessel using MMSI (Maritime Mobile Service Identity)
+vessel_mmsi = 368615000  # Replace with actual MMSI
+vessel_data = ais_data[ais_data['MMSI'] == vessel_mmsi] import numpy as np
+
+# Calculate the change in speed (acceleration)
+# Calculate the change in speed (acceleration)
+vessel_data.loc[:, 'speed_change'] = vessel_data['SOG'].diff()  # Calculate speed change
+vessel_data.loc[:, 'acceleration'] = vessel_data['speed_change'].diff()  # Calculate acceleration (using entire column) # Calculate the rate of change in heading (turning rate)
+vessel_data['turning_rate'] = vessel_data['Heading'].diff() from sklearn.cluster import DBSCAN
+
+# Example of using DBSCAN for clustering movement patterns based on latitude and longitude
+coordinates = vessel_data[['LAT', 'LON']]
+dbscan = DBSCAN(eps=1, min_samples=10)  # Adjust parameters based on data scale
+vessel_data['movement_pattern'] = dbscan.fit_predict(coordinates) import matplotlib.pyplot as plt
+plt.scatter(vessel_data['LON'], vessel_data['LAT'], c=vessel_data['distance_to_reference'], cmap='viridis')
+plt.colorbar(label='Distance to Reference (meters)')
+plt.title('Vessel Locations and Distances to Reference')
+plt.xlabel('Longitude')
+plt.ylabel('Latitude')
+plt.show() # Example: Calculating average SOG and COG for the same vessel over time
+historical_avg_sog = vessel_data['SOG'].mean()
+historical_avg_cog = vessel_data['COG'].mean()
+
+vessel_data['sog_anomaly'] = vessel_data['SOG'] > (historical_avg_sog + 2 * vessel_data['SOG'].std())
+vessel_data['cog_anomaly'] = vessel_data['COG'].diff().abs() > 30  # Anomaly if change in COG > 30 degrees
+# Draught changes
+# Calculate the change in draught
+vessel_data['draught_change'] = vessel_data['Draft'].diff()
+# Save results to a CSV file
+vessel_data.to_csv('vessel_data_with_features.csv', index=False)
+print("Results have been saved to 'vessel_data_with_features.csv'")
+import pandas as pd
+import numpy as np
+
+# Load AIS data with extracted features (e.g., from the previous feature extraction code)
+vessel_data = pd.read_csv('vessel_data_with_features.csv')
+
+# Calculate Z-scores for Speed Over Ground (SOG) and Course Over Ground (COG)
+vessel_data['sog_zscore'] = (vessel_data['SOG'] - vessel_data['SOG'].mean()) / vessel_data['SOG'].std()
+vessel_data['cog_zscore'] = (vessel_data['COG'] - vessel_data['COG'].mean()) / vessel_data['COG'].std()
+
+# Flag anomalies where Z-score is greater than a threshold (e.g., 3)
+vessel_data['sog_anomaly'] = vessel_data['sog_zscore'].abs() > 3
+vessel_data['cog_anomaly'] = vessel_data['cog_zscore'].abs() > 3
+
+# Save results to CSV
+vessel_data.to_csv('Generated_csv\\vessel_data_with_anomalies_zscore.csv', index=False)
+print("Anomalies detected using Z-score analysis have been saved to 'vessel_data_with_anomalies_zscore.csv'")
+# Calculate moving averages for SOG and COG
+vessel_data['sog_moving_avg'] = vessel_data['SOG'].rolling(window=5).mean()
+vessel_data['cog_moving_avg'] = vessel_data['COG'].rolling(window=5).mean()
+
+# Calculate anomalies based on deviations from the moving average
+vessel_data['sog_anomaly_moving_avg'] = np.abs(vessel_data['SOG'] - vessel_data['sog_moving_avg']) > 2 * vessel_data['SOG'].std()
+vessel_data['cog_anomaly_moving_avg'] = np.abs(vessel_data['COG'] - vessel_data['cog_moving_avg']) > 2 * vessel_data['COG'].std()
+
+# Save results to CSV
+vessel_data.to_csv('Generated_csv\\vessel_data_with_anomalies_moving_avg.csv', index=False)
+print("Anomalies detected using moving average analysis have been saved to 'vessel_data_with_anomalies_moving_avg.csv'")
+from pykalman import KalmanFilter
+import pandas as pd
+import numpy as np
+
+# Load AIS data with extracted features (e.g., from the previous feature extraction code)
+vessel_data = pd.read_csv('Generated_csv\\vessel_data_with_features.csv')
+# Example: Kalman Filter for Speed (SOG)
+sog_values = vessel_data['SOG'].values
+
+# Initialize Kalman Filter
+kf = KalmanFilter(initial_state_mean=0, n_dim_obs=1)
+
+# Estimate speed
+state_means, state_covariances = kf.em(sog_values).filter(sog_values)
+
+# Detect anomalies where actual SOG significantly deviates from Kalman Filter prediction
+vessel_data['sog_kalman'] = state_means
+vessel_data['sog_anomaly_kalman'] = np.abs(vessel_data['SOG'] - vessel_data['sog_kalman']) > 2 * vessel_data['SOG'].std()
+
+# Save results to CSV
+vessel_data.to_csv('Generated_csv\\vessel_data_with_anomalies_kalman.csv', index=False)
+print("Anomalies detected using Kalman Filter have been saved to 'vessel_data_with_anomalies_kalman.csv'")
+from sklearn.cluster import DBSCAN
+import numpy as np
+import pandas as pd
+
+vessel_data = pd.read_csv('vessel_data_with_features.csv')
+# Select features for clustering
+features = vessel_data[['SOG', 'COG', 'LAT', 'LON']].values
+
+# Apply DBSCAN
+dbscan = DBSCAN(eps=1, min_samples=10)
+vessel_data['cluster'] = dbscan.fit_predict(features)
+
+# Anomalies are points labeled as -1
+vessel_data['anomaly_dbscan'] = vessel_data['cluster'] == -1
+
+# Save results to CSV
+vessel_data.to_csv('vessel_data_with_anomalies_dbscan.csv', index=False)
+print("Anomalies detected using DBSCAN have been saved to 'vessel_data_with_anomalies_dbscan.csv'")
+from sklearn.ensemble import IsolationForest
+
+# Train Isolation Forest
+clf = IsolationForest(contamination=0.01)
+vessel_data['anomaly_isolation_forest'] = clf.fit_predict(features)
+
+# Anomalies are labeled as -1
+vessel_data['anomaly_isolation_forest'] = vessel_data['anomaly_isolation_forest'] == -1
+
+# Save results to CSV
+vessel_data.to_csv('Generated_csv\\vessel_data_with_anomalies_isolation_forest.csv', index=False)
+print("Anomalies detected using Isolation Forest have been saved to 'vessel_data_with_anomalies_isolation_forest.csv'")
+import tensorflow as tf
+from tensorflow.keras.models import Model
+from tensorflow.keras.layers import Input, Dense
+
+# Select relevant features
+features = vessel_data[['SOG', 'COG', 'LAT', 'LON']].values
+
+# Normalize data
+mean = features.mean(axis=0)
+std = features.std(axis=0)
+features = (features - mean) / std
+
+# Autoencoder architecture
+input_dim = features.shape[1]
+encoding_dim = 2  # Size of the encoded representation
+
+input_layer = Input(shape=(input_dim,))
+encoder = Dense(encoding_dim, activation='relu')(input_layer)
+decoder = Dense(input_dim, activation='linear')(encoder)
+
+autoencoder = Model(inputs=input_layer, outputs=decoder)
+autoencoder.compile(optimizer='adam', loss='mse')
+
+# Train the autoencoder
+autoencoder.fit(features, features, epochs=50, batch_size=32, shuffle=True, validation_split=0.1)
+
+# Calculate reconstruction error
+reconstructions = autoencoder.predict(features)
+mse = np.mean(np.power(features - reconstructions, 2), axis=1)
+vessel_data['anomaly_autoencoder'] = mse > np.percentile(mse, 95)
+
+# Save results to CSV
+vessel_data.to_csv('vessel_data_with_anomalies_autoencoder.csv', index=False)
+print("Anomalies detected using Autoencoder have been saved to 'vessel_data_with_anomalies_autoencoder.csv'")
+import pandas as pd
+
+# Load the results from each anomaly detection method
+vessel_data = pd.read_csv('Generated_csv\\vessel_data_with_features.csv')
+
+# Load the individual anomaly results from different methods
+vessel_data_zscore = pd.read_csv('Generated_csv\\vessel_data_with_anomalies_zscore.csv')
+vessel_data_moving_avg = pd.read_csv('Generated_csv\\vessel_data_with_anomalies_moving_avg.csv')
+vessel_data_kalman = pd.read_csv('Generated_csv\\vessel_data_with_anomalies_kalman.csv')
+vessel_data_dbscan = pd.read_csv('Generated_csv\\vessel_data_with_anomalies_dbscan.csv')
+vessel_data_isolation_forest = pd.read_csv('Generated_csv\\vessel_data_with_anomalies_isolation_forest.csv')
+vessel_data_autoencoder = pd.read_csv('Generated_csv\\vessel_data_with_anomalies_autoencoder.csv')
+
+# Merge results into a single DataFrame
+vessel_data['zscore_anomaly'] = vessel_data_zscore['sog_anomaly'] | vessel_data_zscore['cog_anomaly']
+vessel_data['moving_avg_anomaly'] = vessel_data_moving_avg['sog_anomaly_moving_avg'] | vessel_data_moving_avg['cog_anomaly_moving_avg']
+vessel_data['kalman_anomaly'] = vessel_data_kalman['sog_anomaly_kalman']
+vessel_data['dbscan_anomaly'] = vessel_data_dbscan['anomaly_dbscan']
+vessel_data['isolation_forest_anomaly'] = vessel_data_isolation_forest['anomaly_isolation_forest']
+vessel_data['autoencoder_anomaly'] = vessel_data_autoencoder['anomaly_autoencoder']
+
+# Combine using a simple voting system (flagged as an anomaly if flagged by at least 3 methods)
+vessel_data['combined_anomaly_vote'] = (
+    vessel_data[['zscore_anomaly', 'moving_avg_anomaly', 'kalman_anomaly', 'dbscan_anomaly', 
+                 'isolation_forest_anomaly', 'autoencoder_anomaly']]
+    .sum(axis=1) >= 3  # Adjust threshold based on desired sensitivity
+)
+
+# Combine using a weighted scoring system (you can assign weights based on prior evaluation)
+weights = {
+    'zscore_anomaly': 1.0,
+    'moving_avg_anomaly': 1.0,
+    'kalman_anomaly': 1.5,
+    'dbscan_anomaly': 2.0,
+    'isolation_forest_anomaly': 1.5,
+    'autoencoder_anomaly': 2.0
+}
+
+# Calculate weighted score
+vessel_data['weighted_anomaly_score'] = (
+    vessel_data['zscore_anomaly'] * weights['zscore_anomaly'] +
+    vessel_data['moving_avg_anomaly'] * weights['moving_avg_anomaly'] +
+    vessel_data['kalman_anomaly'] * weights['kalman_anomaly'] +
+    vessel_data['dbscan_anomaly'] * weights['dbscan_anomaly'] +
+    vessel_data['isolation_forest_anomaly'] * weights['isolation_forest_anomaly'] +
+    vessel_data['autoencoder_anomaly'] * weights['autoencoder_anomaly']
+)
+
+# Flag anomalies based on weighted score threshold
+vessel_data['combined_anomaly_weighted'] = vessel_data['weighted_anomaly_score'] >= 4.0  # Set based on sensitivity
+
+# Save the combined results to a CSV file
+vessel_data.to_csv('vessel_data_combined_anomalies.csv', index=False)
+print("Combined anomaly detection results have been saved to 'vessel_data_combined_anomalies.csv'")
+import pandas as pd
+
+# Load the combined results
+vessel_data = pd.read_csv('vessel_data_combined_anomalies.csv')
+
+# Check for anomalies based on the combined flag
+if vessel_data['combined_anomaly_vote'].any():
+    print("Anomalies detected!")
+
+    # Identify the type of anomaly based on individual flags
+    for index, row in vessel_data.iterrows():
+        if row['combined_anomaly_vote']:
+            anomaly_types = []
+            if row['zscore_anomaly']:
+                anomaly_types.append('Z-score anomaly')
+            if row['moving_avg_anomaly']:
+                anomaly_types.append('Moving average anomaly')
+            if row['kalman_anomaly']:
+                anomaly_types.append('Kalman filter anomaly')
+            if row['dbscan_anomaly']:
+                anomaly_types.append('DBSCAN anomaly')
+            if row['isolation_forest_anomaly']:
+                anomaly_types.append('Isolation Forest anomaly')
+            if row['autoencoder_anomaly']:
+                anomaly_types.append('Autoencoder anomaly')
+
+            print(f"Vessel ID: {row['MMSI']}, Anomaly Types: {anomaly_types}")
+else:
+    print("No anomalies detected.")
+import pandas as pd
+import numpy as np
+from sklearn.cluster import DBSCAN
+from sklearn.ensemble import IsolationForest
+from tensorflow.keras.models import Model, load_model
+from tensorflow.keras.layers import Input, Dense
+from tensorflow.keras.models import load_model
+import joblib
+import pickle
+
+# Load AIS data with extracted features
+vessel_data = pd.read_csv('Generated_csv\\vessel_data_with_features.csv')
+
+def moving_avg_anomaly_detection(df, column, window=5, threshold=2):
+    """
+    Detect anomalies based on moving average for a given column.
+    
+    Parameters:
+    - df (pd.DataFrame): The DataFrame containing the data.
+    - column (str): The column name for which to calculate the moving average and detect anomalies.
+    - window (int): The window size for the moving average. Default is 5.
+    - threshold (float): The number of standard deviations away from the moving average that will be considered an anomaly. Default is 2.
+    
+    Returns:
+    - pd.DataFrame: The DataFrame with additional columns for moving average and anomalies.
+    """
+    # Calculate moving average
+    moving_avg_column = f'{column}_moving_avg'
+    df[moving_avg_column] = df[column].rolling(window=window).mean()
+    
+    # Calculate anomalies based on deviations from the moving average
+    anomaly_column = f'{column}_anomaly_moving_avg'
+    df[anomaly_column] = np.abs(df[column] - df[moving_avg_column]) > threshold * df[column].std()
+    
+    return df
+### Kalman Filter ###
+from pykalman import KalmanFilter
+
+def kalman_filter_anomaly_detection(df, column):
+    kf = KalmanFilter(initial_state_mean=0, n_dim_obs=1)
+    state_means, state_covariances = kf.em(df[column].values).filter(df[column].values)
+    df[f'{column}_kalman'] = state_means
+    df[f'{column}_anomaly_kalman'] = np.abs(df[column] - df[f'{column}_kalman']) > 2 * df[column].std()
+    # Save the filter parameters
+    with open(f'{column}_kalman_filter.pkl', 'wb') as f:
+        pickle.dump(kf, f)
+    return df
+
+# Apply Kalman Filter for SOG
+vessel_data = kalman_filter_anomaly_detection(vessel_data, 'SOG')
+
+### DBSCAN ###
+def dbscan_anomaly_detection(df, features, eps=0.5, min_samples=5):
+    dbscan = DBSCAN(eps=eps, min_samples=min_samples)
+    df['cluster'] = dbscan.fit_predict(features)
+    df['anomaly_dbscan'] = df['cluster'] == -1
+    # Save DBSCAN model parameters
+    with open('dbscan_model.pkl', 'wb') as f:
+        pickle.dump(dbscan, f)
+    return df
+
+# Apply DBSCAN
+features = vessel_data[['SOG', 'COG', 'LAT', 'LON']].values
+vessel_data = dbscan_anomaly_detection(vessel_data, features)
+
+### Isolation Forest ###
+def isolation_forest_anomaly_detection(df, features, contamination=0.01):
+    clf = IsolationForest(contamination=contamination)
+    df['anomaly_isolation_forest'] = clf.fit_predict(features) == -1
+    # Save Isolation Forest model
+    joblib.dump(clf, 'isolation_forest_model.joblib')
+    return df
+
+# Apply Isolation Forest
+vessel_data = isolation_forest_anomaly_detection(vessel_data, features)
+
+### Autoencoder ###
+def autoencoder_anomaly_detection(df, features, encoding_dim=2, epochs=50, batch_size=32):
+    input_dim = features.shape[1]
+    input_layer = Input(shape=(input_dim,))
+    encoder = Dense(encoding_dim, activation='relu')(input_layer)
+    decoder = Dense(input_dim, activation='linear')(encoder)
+    autoencoder = Model(inputs=input_layer, outputs=decoder)
+    autoencoder.compile(optimizer='adam', loss='mse')
+    
+    # Normalize features
+    mean = features.mean(axis=0)
+    std = features.std(axis=0)
+    features_norm = (features - mean) / std
+    
+    # Train the autoencoder
+    autoencoder.fit(features_norm, features_norm, epochs=epochs, batch_size=batch_size, shuffle=True, validation_split=0.1)
+    
+    # Save the autoencoder model
+    autoencoder.save('autoencoder_model.h5')
+    
+    # Calculate reconstruction error
+    reconstructions = autoencoder.predict(features_norm)
+    mse = np.mean(np.power(features_norm - reconstructions, 2), axis=1)
+    df['anomaly_autoencoder'] = mse > np.percentile(mse, 95)
+    return df
+
+# Apply Autoencoder
+vessel_data = autoencoder_anomaly_detection(vessel_data, features)
+
+# Moving Average Anomaly Detection Function
+
+def moving_avg_anomaly_detection(df, column, window=5, threshold=2):
+    moving_avg_column = f'{column}_moving_avg'
+    anomaly_column = f'{column}_anomaly_moving_avg'
+    
+    # Calculate moving average
+    df[moving_avg_column] = df[column].rolling(window=window).mean()
+    
+    # Calculate anomalies based on deviations from the moving average
+    df[anomaly_column] = np.abs(df[column] - df[moving_avg_column]) > threshold * df[column].std()
+    
+    return df
+
+# Example z-score anomaly detection function
+def zscore_anomaly_detection(df, column, threshold=2):
+    zscore_column = f'{column}_zscore'
+    anomaly_column = f'{column}_zscore_anomaly'
+    
+    # Calculate z-score
+    df[zscore_column] = (df[column] - df[column].mean()) / df[column].std()
+    
+    # Identify anomalies based on z-score
+    df[anomaly_column] = np.abs(df[zscore_column]) > threshold
+    
+    return df
+
+# Combine Anomalies Function
+def combine_anomalies(df):
+    required_columns = [
+        'SOG_zscore_anomaly', 'COG_zscore_anomaly',
+        'SOG_anomaly_moving_avg', 'COG_anomaly_moving_avg', 
+        'SOG_anomaly_kalman', 'anomaly_dbscan', 
+        'anomaly_isolation_forest', 'anomaly_autoencoder'
+    ]
+    
+    # Ensure all required columns exist, if not create them with False as default
+    for col in required_columns:
+        if col not in df.columns:
+            df[col] = False
+    
+    # Combine anomalies using a voting mechanism
+    df['combined_anomaly_vote'] = (
+        df[required_columns].sum(axis=1) >= 3
+    )
+    
+    # Weighted score approach
+    weights = {
+        'SOG_zscore_anomaly': 1.0,
+        'COG_zscore_anomaly': 1.0,
+        'SOG_anomaly_moving_avg': 1.5,
+        'COG_anomaly_moving_avg': 1.5,
+        'SOG_anomaly_kalman': 2.0,
+        'anomaly_dbscan': 2.0,
+        'anomaly_isolation_forest': 2.0,
+        'anomaly_autoencoder': 2.0
+    }
+    df['combined_anomaly_weighted'] = (
+        df[list(weights.keys())] * pd.Series(weights)
+    ).sum(axis=1)
+    
+    return df
+    
+# Combine anomalies
+vessel_data = combine_anomalies(vessel_data)
+
+# Save the combined results
+vessel_data.to_csv('vessel_data_combined_anomalies.csv', index=False)
+print("Combined anomaly detection results have been saved to 'vessel_data_combined_anomalies.csv'")
+
+### Load Models for Live Data Processing ###
+# Load Kalman Filter
+with open('SOG_kalman_filter.pkl', 'rb') as f:
+    kalman_filter = pickle.load(f)
+
+# Load DBSCAN model
+with open('dbscan_model.pkl', 'rb') as f:
+    dbscan_model = pickle.load(f)
+
+# Load Isolation Forest model
+isolation_forest_model = joblib.load('isolation_forest_model.joblib')
+
+# Load Autoencoder model
+autoencoder_model = load_model('autoencoder_model.h5', compile=False)
+autoencoder_model.compile(optimizer='adam', loss='mse')
+
+# These models can now be used to process live AIS data.
